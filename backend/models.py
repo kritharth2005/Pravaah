@@ -6,4 +6,4 @@ class ResponseBody(BaseModel):
 
 class QueryRequest(BaseModel):
     query: str
-    language: str = "en"
+    language: str = "eng"

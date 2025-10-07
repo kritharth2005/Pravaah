@@ -38,6 +38,7 @@ async def human_summarizer(query_text: str, lang: str):
     2.  Base your entire answer only on the information from the CONTEXT above.
     3.  If the context does not contain the answer, state that the information is not available in the provided text.
     4.  Conclude your response with a simple disclaimer: "Please remember, this is a simplified explanation for informational purposes and not legal advice. Always consult a legal professional for serious matters."
+    5.  **Start the explanation directly.** Do not begin your response with phrases like "Based on the information provided," or "According to the text."
 
     """
 
@@ -57,9 +58,9 @@ async def human_summarizer(query_text: str, lang: str):
     print(response.content)
     print("=" * 55)
 
-    audio_path = await generate_audio_output(response.text, lang)
+    restext, audio_path = await generate_audio_output(response.content, lang)
 
-    return response.text, audio_path
+    return restext, audio_path
 
 
 async def professional_summarizer(query_text: str, lang: str):
@@ -80,6 +81,7 @@ async def professional_summarizer(query_text: str, lang: str):
         3.  **Strictly Context-Based:** Your entire summary must be derived exclusively from the provided CONTEXT. Do not infer or add information not present in the text.
         4.  **Cite Sections:** You must cite the specific section numbers or clauses referenced in the context.
         5.  **Handle Missing Information:** If the CONTEXT does not contain the information relevant to the question, state that the information is not available in the provided text.
+        6.  **Start the explanation directly.** Do not begin your response with phrases like "Based on the information provided," or "According to the text."
 
         ## PROFESSIONAL DISCLAIMER ##
         You MUST end every response with the following disclaimer, exactly as written:
@@ -102,9 +104,9 @@ async def professional_summarizer(query_text: str, lang: str):
     print(response.content)
     print("=" * 55)
 
-    audio_path = await generate_audio_output(response.text, lang)
+    restext, audio_path = await generate_audio_output(response.content, lang)
 
-    return response.text, audio_path
+    return restext, audio_path
 
 
 async def human_advisor(query_text: str, lang: str):
@@ -129,6 +131,7 @@ async def human_advisor(query_text: str, lang: str):
             * **Conclusion:** Give a straightforward concluding thought based on your analysis.
         4.  **Strictly Context-Based:** Your entire analysis must be based ONLY on the provided CONTEXT. Do not use any outside knowledge.
         5.  **Handle Missing Information:** If the CONTEXT does not contain the information to answer the question, you must clearly state: "The provided text does not have the information needed to answer this question."
+        7.  **Start the explanation directly.** Do not begin your response with phrases like "Based on the information provided," or "According to the text."
 
         ## CRITICAL DISCLAIMER ##
         You MUST end every response with the following disclaimer, exactly as written:
@@ -159,9 +162,9 @@ async def human_advisor(query_text: str, lang: str):
     print(response.content)
     print("=" * 55)
 
-    audio_path = await generate_audio_output(response.text, lang)
+    restext, audio_path = await generate_audio_output(response.content, lang)
 
-    return response.text, audio_path
+    return restext, audio_path
 
 
 async def professional_advisor(query_text: str, lang: str):
@@ -187,6 +190,7 @@ async def professional_advisor(query_text: str, lang: str):
             * **Conclusion:** Provide a reasoned legal conclusion based on your application of the rule to the facts.
         5.  **Strictly Context-Based:** Your entire analysis must be derived exclusively from the provided CONTEXT. Do not infer principles or cite case law not present in the text.
         6.  **Handle Missing Information:** If the CONTEXT is insufficient to form a complete analysis, explicitly state what information is missing and how it impacts the conclusion.
+        7.  **Start the explanation directly.** Do not begin your response with phrases like "Based on the information provided," or "According to the text."
 
         ## PROFESSIONAL DISCLAIMER ##
         You MUST end every response with the following disclaimer, exactly as written:
@@ -217,9 +221,9 @@ async def professional_advisor(query_text: str, lang: str):
     print(response.content)
     print("=" * 55)
 
-    audio_path = await generate_audio_output(response.text, lang)
+    restext, audio_path = await generate_audio_output(response.content, lang)
 
-    return response.text, audio_path
+    return restext, audio_path
 
 
 def load_vector_store():
@@ -234,11 +238,11 @@ def delete_vector_store():
     return {"message": "Done"}
 
 
-if __name__ == "__main__":
-    # print(load_vector_store())
-    query = """
-    Provide a technical summary of the grounds upon which a 'Perpetual Injunction' can be granted, as enumerated in the Specific Relief Act, 1963
-"""
-    # human_summarizer(query_text=query)
-    asyncio.run(professional_summarizer(query_text=query, lang="mal"))
-# clear_database()
+# if __name__ == "__main__":
+#     # print(load_vector_store())
+#     query = """
+#     Provide a technical summary of the grounds upon which a 'Perpetual Injunction' can be granted, as enumerated in the Specific Relief Act, 1963
+# """
+#     # human_summarizer(query_text=query)
+#     asyncio.run(professional_summarizer(query_text=query, lang="mal"))
+# # clear_database()

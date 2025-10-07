@@ -67,4 +67,4 @@ async def generate_tts(text, voice_model):
 async def generate_audio_output(text: str, lang: str):
     restext, voice_model = translater(lang=lang, script=text)
     await generate_tts(restext, voice_model)
-    return "static/output.mp3"
+    return restext, "static/output.mp3"

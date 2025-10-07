@@ -1,2 +1,4 @@
 pravaah
 .env
+__pycache__/
+*.pyc
