@@ -5,7 +5,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.schema.document import Document
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-import torch
 
 
 def load_documents():
@@ -21,7 +20,7 @@ def spilt_documents(documents: list[Document]):
 
 
 def get_embedding_function():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cpu"
     embeddings = HuggingFaceEmbeddings(
         model_name="hkunlp/instructor-large",
         model_kwargs={"device": device}

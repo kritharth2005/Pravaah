@@ -3,7 +3,6 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI
 from dotenv import load_dotenv
-from torch import cuda
 import os
 
 from vector import (
