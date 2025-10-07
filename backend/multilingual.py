@@ -1,7 +1,8 @@
+import asyncio
 import edge_tts
 import google.generativeai as genai
 from dotenv import load_dotenv
-import os 
+import os
 
 load_dotenv()
 
@@ -48,13 +49,22 @@ def translater(lang, script):
             tran_script = translate(script, "telugu")
             model = "te-IN-MohanNeural"
 
-    return model, tran_script
+    return tran_script, model
 
 
 async def generate_tts(text, voice_model):
-        output_file = "test.mp3"
-        rate = "+10%"  # Adjusts the speed (negative values slow it down)
+    if not os.path.exists("static"):
+        os.makedirs("static")
 
-        communicate = edge_tts.Communicate(text, voice_model, rate=rate)
-        await communicate.save(output_file)
-        print(f"Speech saved as {output_file}")
+    output_file = "static/output.mp3"
+    rate = "+10%"  # Adjusts the speed (negative values slow it down)
+
+    communicate = edge_tts.Communicate(text, voice_model, rate=rate)
+    await communicate.save(output_file)
+    print(f"Speech saved as {output_file}")
+
+
+async def generate_audio_output(text: str, lang: str):
+    restext, voice_model = translater(lang=lang, script=text)
+    await generate_tts(restext, voice_model)
+    return "static/output.mp3"
