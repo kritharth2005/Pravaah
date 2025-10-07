@@ -13,25 +13,25 @@ from vector import (
 
 load_dotenv()
 
-def query_rag(query_text: str):
+def human_summarizer(query_text: str):
     vector_store = Chroma(
         persist_directory="chroma_langchain_db",
         embedding_function=get_embedding_function(),
     )
 
     PROMPT_TEMPLATE = """
-        You are an AI legal assistant. Your task is to provide a clear and concise answer based exclusively on the provided legal context.
+    You are an AI assistant that explains legal topics in simple, everyday language. Your task is to answer the user's question clearly, based only on the text provided.
 
-        CONTEXT:
-        {context}
-        ---
-        QUESTION: {question}
+    CONTEXT:
+    {context}
+    ---
+    QUESTION: {question}
 
-        INSTRUCTIONS:
-        1.  Answer the question using only the information from the CONTEXT above.
-        2.  Cite the specific sections or clauses you are referencing in your answer.
-        3.  If the context does not contain the answer, state that the information is not available in the provided text.
-        4.  Conclude your response with the disclaimer: "This is an AI-generated summary for informational purposes only and does not constitute legal advice. Please consult a qualified legal professional."
+    INSTRUCTIONS:
+    1.  **Explain the answer in simple terms.** Avoid legal jargon. If you must use a legal term, explain it immediately.
+    2.  Base your entire answer only on the information from the CONTEXT above.
+    3.  If the context does not contain the answer, state that the information is not available in the provided text.
+    4.  Conclude your response with a simple disclaimer: "Please remember, this is a simplified explanation for informational purposes and not legal advice. Always consult a legal professional for serious matters."
 
     """
 
@@ -74,9 +74,9 @@ def delete_vector_store():
     return {"message": "Done"}
 
 if __name__ == "__main__":
-    print(load_vector_store())
+    # print(load_vector_store())
     query = """
-    After being fired from his job, Rohan sends a series of threatening emails to his former manager in Mangaluru. The emails do not threaten physical harm but state that Rohan will 'ruin his reputation' by posting fabricated, defamatory stories about him online if he is not paid a severance of ₹5,00,000. Does this act constitute 'criminal intimidation' under the BNS? Explain your reasoning by analyzing the nature of the threat required for this offense.
+    As per the principles enshrined in Section 11 of the Code of Civil Procedure, the doctrine of Res Judicata acts as a procedural bar against a court trying any suit or issue in which the matter directly and substantially in issue has been directly and substantially in issue in a former suit between the same parties, or between parties under whom they or any of them claim, litigating under the same title, in a Court competent to try such subsequent suit, and has been heard and finally decided by such Court. This is to ensure finality to litigation and prevent multiplicity of proceedings.
 """
-    query_rag(query_text=query)
+    human_summarizer(query_text=query)
     # clear_database()
