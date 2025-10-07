@@ -4,10 +4,11 @@ from langchain_community.document_loaders.pdf import PyPDFDirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.schema.document import Document
 from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
 
 
 def load_documents():
-    document_loader = PyPDFDirectoryLoader("data")
+    document_loader = PyPDFDirectoryLoader("PDFS")
     return document_loader.load()
 
 
@@ -18,9 +19,9 @@ def spilt_documents(documents: list[Document]):
     return text_spliter.split_documents(documents)
 
 
-# def get_embedding_function():
-#     # embeddings = OllamaEmbeddings(model="nomic-embed-text")
-#     return embeddings
+def get_embedding_function():
+    embeddings = HuggingFaceEmbeddings(model_name="hkunlp/instructor-large", model_kwargs={'device': 'cuda'})
+    return embeddings
 
 
 def calculate_chunk_ids(chunks):
