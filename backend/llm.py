@@ -3,6 +3,8 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI
 from dotenv import load_dotenv
+from torch import cuda
+import os
 
 from vector import (
     add_to_chroma,
@@ -238,11 +240,11 @@ def delete_vector_store():
     return {"message": "Done"}
 
 
-# if __name__ == "__main__":
-#     # print(load_vector_store())
+if __name__ == "__main__":
+    print(load_vector_store())
 #     query = """
 #     Provide a technical summary of the grounds upon which a 'Perpetual Injunction' can be granted, as enumerated in the Specific Relief Act, 1963
 # """
-#     # human_summarizer(query_text=query)
-#     asyncio.run(professional_summarizer(query_text=query, lang="mal"))
-# # clear_database()
+    # human_summarizer(query_text=query)
+    # asyncio.run(professional_summarizer(query_text=query, lang="mal"))
+# clear_database()
