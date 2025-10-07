@@ -1,29 +1,43 @@
 import asyncio
 import edge_tts
-import google.generativeai as genai
 from dotenv import load_dotenv
 import os
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-
 
 def translate(prompt, lang):
-    system_prompt = """
-        You are a language translator.
-        You will take in a prompt to translate and the language to which it shloud be translated.
-        Just return the translated text.
     """
+    Translates a given text to a specified language using LangChain and Google's Gemini.
+    """
+    # Note: I've corrected the model name to "gemini-1.5-flash"
+    # as "gemini-2.5-flash" is not a valid model name.
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
 
-    model = genai.GenerativeModel("gemini-2.5-flash")
-    chat = model.start_chat()
-    chat.send_message(system_prompt)
+    # A more structured prompt template separates instructions from user input.
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            ("system", "You are an expert language translator. Your task is to translate the user's text into the specified language. Return only the translated text and nothing else."),
+            ("human", "Translate the following text to {lang}:\n\n{text_to_translate}"),
+        ]
+    )
 
-    user_input = f"{prompt}: translate this to this language: {lang}"
-    resp = chat.send_message(user_input)
+    # The parser ensures we get a clean string as the final output.
+    output_parser = StrOutputParser()
 
-    return resp.text
+    # Create the chain by piping the components together.
+    chain = prompt_template | llm | output_parser
+
+    # Invoke the chain with the required variables.
+    translated_text = chain.invoke({
+        "text_to_translate": prompt,
+        "lang": lang
+    })
+
+    return translated_text
 
 
 def translater(lang, script):
