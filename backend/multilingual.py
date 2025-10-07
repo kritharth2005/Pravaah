@@ -15,7 +15,7 @@ def translate(prompt, lang):
     """
     # Note: I've corrected the model name to "gemini-1.5-flash"
     # as "gemini-2.5-flash" is not a valid model name.
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
+    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash")
 
     # A more structured prompt template separates instructions from user input.
     prompt_template = ChatPromptTemplate.from_messages(

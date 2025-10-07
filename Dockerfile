@@ -1,40 +1,55 @@
-# Use a specific version of the Python slim image
-FROM python:3.11-slim
+# ---- Builder Stage ----
+FROM python:3.11-slim AS builder
 
-# Set the working directory inside the container
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    VENV_PATH=/opt/venv
+
+# Create a non-root user for security
+RUN addgroup --system nonroot && \
+    adduser --system --ingroup nonroot --shell /bin/sh --no-create-home nonroot
+
+# Install uv
+RUN pip install uv
+
+# Create the virtual environment
+RUN python3 -m venv $VENV_PATH
+
+# Set the PATH to include the venv
+ENV PATH="$VENV_PATH/bin:$PATH"
+
 WORKDIR /app
 
-# Set environment variable to prevent interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
+# Copy dependency files
+COPY Backend/pyproject.toml Backend/uv.lock ./Backend/
+WORKDIR /app/Backend
 
-# Install system dependencies
-RUN apt-get update && \
-    apt-get install -y \
-    tesseract-ocr \
-    poppler-utils \
-    git \
-    git-lfs && \
-    rm -rf /var/lib/apt/lists/*
+# Install dependencies using uv (respects lock file)
+RUN uv sync --frozen --no-cache
 
-# Create a virtual environment and upgrade pip
-RUN python -m venv /opt/venv && \
-    /opt/venv/bin/python -m ensurepip && \
-    /opt/venv/bin/pip install --upgrade pip
+# ---- Final Stage ----
+FROM python:3.11-slim
 
-# Add venv to PATH
-ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    VENV_PATH=/opt/venv
 
-# Copy requirements file
-COPY ./Backend/requirements.txt .
+ENV PATH="$VENV_PATH/bin:$PATH"
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Create non-root user
+RUN addgroup --system nonroot && \
+    adduser --system --ingroup nonroot --shell /bin/sh --no-create-home nonroot
+USER nonroot
 
-# Copy backend code
-COPY ./Backend .
+WORKDIR /app
 
-# Expose the FastAPI port
+# Copy the virtual environment and installed packages
+COPY --from=builder --chown=nonroot:nonroot $VENV_PATH $VENV_PATH
+
+# Copy application code
+COPY --chown=nonroot:nonroot . .
+
 EXPOSE 8000
 
-# Run app using python -m uvicorn for reliability
-CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run FastAPI
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
