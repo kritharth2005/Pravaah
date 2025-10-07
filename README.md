@@ -1,2 +1,2 @@
-They call me Krrizz 
+They call me Krrizz,
 Cause I rizz the way none else
