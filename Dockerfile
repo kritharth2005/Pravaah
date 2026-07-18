@@ -1,55 +1,52 @@
-# ---- Builder Stage ----
-FROM python:3.11-slim AS builder
+# ----------------------------
+# Dockerfile for FastAPI backend
+# ----------------------------
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    VENV_PATH=/opt/venv
+# Base image
+FROM python:3.14-slim
 
-# Create a non-root user for security
-RUN addgroup --system nonroot && \
-    adduser --system --ingroup nonroot --shell /bin/sh --no-create-home nonroot
+# Environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-# Install uv
-RUN pip install uv
-
-# Create the virtual environment
-RUN python3 -m venv $VENV_PATH
-
-# Set the PATH to include the venv
-ENV PATH="$VENV_PATH/bin:$PATH"
-
+# Set working directory inside container
 WORKDIR /app
 
-# Copy dependency files
-COPY Backend/pyproject.toml Backend/uv.lock ./Backend/
-WORKDIR /app/Backend
+# Copy backend code into container
+COPY backend /app/
 
-# Install dependencies using uv (respects lock file)
-RUN uv sync --frozen --no-cache
+# Install system dependencies for OCR and PDF processing
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    libtesseract-dev \
+    poppler-utils \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
-# ---- Final Stage ----
-FROM python:3.11-slim
+# Install Python dependencies
+# Using pip for simplicity; if using pdm, adjust accordingly
+RUN pip install --upgrade pip && \
+    pip install "edge-tts>=7.2.3" \
+                "fastapi>=0.118.0" \
+                "langchain>=0.3.27" \
+                "langchain-chroma>=0.2.6" \
+                "langchain-community>=0.3.31" \
+                "langchain-google-genai>=2.1.12" \
+                "langchain-huggingface>=0.3.1" \
+                "pdf2image>=1.17.0" \
+                "pillow>=11.3.0" \
+                "pymupdf>=1.26.4" \
+                "pytesseract>=0.3.13" \
+                "python-dotenv>=1.1.1" \
+                "python-multipart>=0.0.20" \
+                "sentence-transformers>=5.1.1" \
+                "torch>=2.8.0" \
+                "uvicorn>=0.37.0"
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    VENV_PATH=/opt/venv
-
-ENV PATH="$VENV_PATH/bin:$PATH"
-
-# Create non-root user
-RUN addgroup --system nonroot && \
-    adduser --system --ingroup nonroot --shell /bin/sh --no-create-home nonroot
-USER nonroot
-
-WORKDIR /app
-
-# Copy the virtual environment and installed packages
-COPY --from=builder --chown=nonroot:nonroot $VENV_PATH $VENV_PATH
-
-# Copy application code
-COPY --chown=nonroot:nonroot . .
-
+# Expose port for FastAPI
 EXPOSE 8000
 
-# Run FastAPI
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start the FastAPI app with uvicorn
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

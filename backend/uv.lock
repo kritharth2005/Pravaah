@@ -134,6 +134,7 @@ dependencies = [
     { name = "langchain-community" },
     { name = "langchain-google-genai" },
     { name = "langchain-huggingface" },
+    { name = "markdown" },
     { name = "pdf2image" },
     { name = "pillow" },
     { name = "pymupdf" },
@@ -154,6 +155,7 @@ requires-dist = [
     { name = "langchain-community", specifier = ">=0.3.31" },
     { name = "langchain-google-genai", specifier = ">=2.1.12" },
     { name = "langchain-huggingface", specifier = ">=0.3.1" },
+    { name = "markdown", specifier = ">=3.9" },
     { name = "pdf2image", specifier = ">=1.17.0" },
     { name = "pillow", specifier = ">=11.3.0" },
     { name = "pymupdf", specifier = ">=1.26.4" },
@@ -1037,6 +1039,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c3/63/8e70c22fad0fd9e7a76c748bcb1ba45db1399d98849559d3e7f162ffeb06/langsmith-0.4.33.tar.gz", hash = "sha256:a8deb12bd332b816ee1896a8003c252882c92f27a3ee9a623ce821f49d1d13f4", size = 964776, upload-time = "2025-10-07T17:05:33.817Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ee/0b/b3d2e07bf09ce16994ed68a98b72699ded2d40bc9ff4b5eb031faedc8e42/langsmith-0.4.33-py3-none-any.whl", hash = "sha256:41d474f744617c79d61791a855ce2cf57294955ce8376c150484f9520700a7e5", size = 387335, upload-time = "2025-10-07T17:05:32.118Z" },
+]
+
+[[package]]
+name = "markdown"
+version = "3.9"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/37/02347f6d6d8279247a5837082ebc26fc0d5aaeaf75aa013fcbb433c777ab/markdown-3.9.tar.gz", hash = "sha256:d2900fe1782bd33bdbbd56859defef70c2e78fc46668f8eb9df3128138f2cb6a", size = 364585, upload-time = "2025-09-04T20:25:22.885Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/70/ae/44c4a6a4cbb496d93c6257954260fe3a6e91b7bed2240e5dad2a717f5111/markdown-3.9-py3-none-any.whl", hash = "sha256:9f4d91ed810864ea88a6f32c07ba8bee1346c0cc1f6b1f9f6c822f2a9667d280", size = 107441, upload-time = "2025-09-04T20:25:21.784Z" },
 ]
 
 [[package]]

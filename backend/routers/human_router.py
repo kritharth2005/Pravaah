@@ -113,5 +113,4 @@ async def handle_query_advisor(data: QueryRequest):
     # Step 1: Get the text-based answer from the RAG system
     print(f"Received query: {query}")
     response_text, audio_url = await human_advisor(query, data.language)
-
     return ResponseBody(text=response_text, audio_path=audio_url)
