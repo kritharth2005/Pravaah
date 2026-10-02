@@ -8,6 +8,8 @@ FROM python:3.14-slim
 # Environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+# Ollama (nomic-embed-text + hermes3:8b) runs on the host, not in this container
+ENV OLLAMA_BASE_URL=http://host.docker.internal:11434
 
 # Set working directory inside container
 WORKDIR /app
@@ -33,16 +35,13 @@ RUN pip install --upgrade pip && \
                 "langchain>=0.3.27" \
                 "langchain-chroma>=0.2.6" \
                 "langchain-community>=0.3.31" \
-                "langchain-google-genai>=2.1.12" \
-                "langchain-huggingface>=0.3.1" \
+                "langchain-ollama>=0.3,<1" \
                 "pdf2image>=1.17.0" \
                 "pillow>=11.3.0" \
                 "pymupdf>=1.26.4" \
                 "pytesseract>=0.3.13" \
                 "python-dotenv>=1.1.1" \
                 "python-multipart>=0.0.20" \
-                "sentence-transformers>=5.1.1" \
-                "torch>=2.8.0" \
                 "uvicorn>=0.37.0"
 
 # Expose port for FastAPI

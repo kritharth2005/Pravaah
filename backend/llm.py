@@ -1,27 +1,24 @@
-import asyncio
-from langchain.prompts import ChatPromptTemplate
-from langchain_chroma import Chroma
-from langchain_google_genai import ChatGoogleGenerativeAI
-from dotenv import load_dotenv
-import os
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_ollama import ChatOllama
 
+from config import LLM_MODEL, LLM_NUM_CTX, LLM_TEMPERATURE, OLLAMA_BASE_URL
 from vector import (
     add_to_chroma,
     clear_database,
-    get_embedding_function,
+    get_vector_store,
     load_documents,
     spilt_documents,
 )
 from multilingual import generate_audio_output
 
-load_dotenv()
+vector_store = get_vector_store()
 
-vector_store = Chroma(
-    persist_directory="chroma_langchain_db",
-    embedding_function=get_embedding_function(),
+model = ChatOllama(
+    model=LLM_MODEL,
+    base_url=OLLAMA_BASE_URL,
+    temperature=LLM_TEMPERATURE,
+    num_ctx=LLM_NUM_CTX,
 )
-
-model = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
 
 
 async def human_summarizer(query_text: str, lang: str):
@@ -43,7 +40,7 @@ async def human_summarizer(query_text: str, lang: str):
 
     """
 
-    results = vector_store.similarity_search_with_score(query=query_text, k=7)
+    results = await vector_store.asimilarity_search_with_score(query=query_text, k=7)
 
     context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
@@ -53,7 +50,7 @@ async def human_summarizer(query_text: str, lang: str):
     print(prompt)
     print("=" * 55)
 
-    response = model.invoke(prompt)
+    response = await model.ainvoke(prompt)
 
     print("=" * 55)
     print(response.content)
@@ -89,7 +86,7 @@ async def professional_summarizer(query_text: str, lang: str):
         "**Disclaimer:** This AI-generated summary is for informational and preliminary review purposes only and is not a substitute for a complete reading of the source text or independent legal analysis."
         """
 
-    results = vector_store.similarity_search_with_score(query=query_text, k=7)
+    results = await vector_store.asimilarity_search_with_score(query=query_text, k=7)
 
     context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
@@ -99,7 +96,7 @@ async def professional_summarizer(query_text: str, lang: str):
     print(prompt)
     print("=" * 55)
 
-    response = model.invoke(prompt)
+    response = await model.ainvoke(prompt)
 
     print("=" * 55)
     print(response.content)
@@ -156,7 +153,7 @@ You MUST end every response with the following disclaimer, exactly as written:
         },
     )
 
-    results = retriever.get_relevant_documents(query_text)
+    results = await retriever.ainvoke(query_text)
 
     context_text = "\n\n---\n\n".join([doc.page_content for doc in results])
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
@@ -166,7 +163,7 @@ You MUST end every response with the following disclaimer, exactly as written:
     print(prompt)
     print("=" * 55)
 
-    response = model.invoke(prompt)
+    response = await model.ainvoke(prompt)
 
     print("=" * 55)
     print(response.content)
@@ -215,7 +212,7 @@ async def professional_advisor(query_text: str, lang: str):
         },
     )
 
-    results = retriever.get_relevant_documents(query_text)
+    results = await retriever.ainvoke(query_text)
 
     context_text = "\n\n---\n\n".join([doc.page_content for doc in results])
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
@@ -225,7 +222,7 @@ async def professional_advisor(query_text: str, lang: str):
     print(prompt)
     print("=" * 55)
 
-    response = model.invoke(prompt)
+    response = await model.ainvoke(prompt)
 
     print("=" * 55)
     print(response.content)

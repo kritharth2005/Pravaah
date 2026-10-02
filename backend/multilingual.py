@@ -1,21 +1,22 @@
-import asyncio
 import edge_tts
-from dotenv import load_dotenv
 import os
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import ChatPromptTemplate
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-load_dotenv()
+from config import LLM_NUM_CTX, OLLAMA_BASE_URL, TRANSLATE_MODEL
 
 
-def translate(prompt, lang):
+async def translate(prompt, lang):
     """
-    Translates a given text to a specified language using LangChain and Google's Gemini.
+    Translates a given text to a specified language using LangChain and a local Ollama model.
     """
-    # Note: I've corrected the model name to "gemini-1.5-flash"
-    # as "gemini-2.5-flash" is not a valid model name.
-    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash")
+    llm = ChatOllama(
+        model=TRANSLATE_MODEL,
+        base_url=OLLAMA_BASE_URL,
+        temperature=0,
+        num_ctx=LLM_NUM_CTX,
+    )
 
     # A more structured prompt template separates instructions from user input.
     prompt_template = ChatPromptTemplate.from_messages(
@@ -32,7 +33,7 @@ def translate(prompt, lang):
     chain = prompt_template | llm | output_parser
 
     # Invoke the chain with the required variables.
-    translated_text = chain.invoke({
+    translated_text = await chain.ainvoke({
         "text_to_translate": prompt,
         "lang": lang
     })
@@ -40,7 +41,7 @@ def translate(prompt, lang):
     return translated_text
 
 
-def translater(lang, script):
+async def translater(lang, script):
     model = None
     tran_script = None
     match lang:
@@ -48,19 +49,19 @@ def translater(lang, script):
             model = "en-US-AriaNeural"
             tran_script = script
         case "hin":
-            tran_script = translate(script, "hindi")
+            tran_script = await translate(script, "hindi")
             model = "hi-IN-MadhurNeural"
         case "kan":
-            tran_script = translate(script, "kannada")
+            tran_script = await translate(script, "kannada")
             model = "kn-IN-SapnaNeural"
         case "tam":
-            tran_script = translate(script, "tamil")
+            tran_script = await translate(script, "tamil")
             model = "ta-IN-PallaviNeural"
         case "mal":
-            tran_script = translate(script, "malayalam")
+            tran_script = await translate(script, "malayalam")
             model = "ml-IN-MidhunNeural"
         case "tel":
-            tran_script = translate(script, "telugu")
+            tran_script = await translate(script, "telugu")
             model = "te-IN-MohanNeural"
 
     return tran_script, model
@@ -79,6 +80,6 @@ async def generate_tts(text, voice_model):
 
 
 async def generate_audio_output(text: str, lang: str):
-    restext, voice_model = translater(lang=lang, script=text)
+    restext, voice_model = await translater(lang=lang, script=text)
     await generate_tts(restext, voice_model)
     return restext, "static/output.mp3"

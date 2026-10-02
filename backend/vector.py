@@ -1,14 +1,38 @@
 import os
 import shutil
+import time
+from pathlib import Path
+from ollama import ResponseError
 from langchain_community.document_loaders.pdf import PyPDFDirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.schema.document import Document
+from langchain_core.documents import Document
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_ollama import OllamaEmbeddings
+
+from config import CHROMA_DIR, CORPUS_DIR, EMBED_MODEL, OLLAMA_BASE_URL
+
+INGEST_BATCH_SIZE = 256
+INGEST_MAX_ATTEMPTS = 3
+
+
+class NomicEmbeddings(OllamaEmbeddings):
+    """nomic-embed-text is trained with task prefixes; omitting them degrades retrieval."""
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return super().embed_documents([f"search_document: {t}" for t in texts])
+
+    def embed_query(self, text: str) -> list[float]:
+        return super().embed_query(f"search_query: {text}")
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        return await super().aembed_documents([f"search_document: {t}" for t in texts])
+
+    async def aembed_query(self, text: str) -> list[float]:
+        return await super().aembed_query(f"search_query: {text}")
 
 
 def load_documents():
-    document_loader = PyPDFDirectoryLoader("PDFS")
+    document_loader = PyPDFDirectoryLoader(str(CORPUS_DIR))
     return document_loader.load()
 
 
@@ -20,13 +44,14 @@ def spilt_documents(documents: list[Document]):
 
 
 def get_embedding_function():
-    device = "cpu"
-    embeddings = HuggingFaceEmbeddings(
-        model_name="hkunlp/instructor-large",
-        model_kwargs={"device": device}
+    return NomicEmbeddings(model=EMBED_MODEL, base_url=OLLAMA_BASE_URL)
+
+
+def get_vector_store():
+    return Chroma(
+        persist_directory=str(CHROMA_DIR),
+        embedding_function=get_embedding_function(),
     )
-    print(f"Embedding model running on: {device}")
-    return embeddings
 
 
 def calculate_chunk_ids(chunks):
@@ -34,7 +59,9 @@ def calculate_chunk_ids(chunks):
     current_chunk_index = 0
 
     for chunk in chunks:
-        source = chunk.metadata.get("source")
+        # Store the corpus-relative POSIX path so IDs match across Windows and Linux.
+        source = Path(chunk.metadata.get("source")).relative_to(CORPUS_DIR).as_posix()
+        chunk.metadata["source"] = source
         page = chunk.metadata.get("page")
         current_pg_id = f"{source}:{page}"
 
@@ -52,10 +79,7 @@ def calculate_chunk_ids(chunks):
 
 
 def add_to_chroma(chunks: list[Document]):
-    vector_store = Chroma(
-        persist_directory="chroma_langchain_db",
-        embedding_function=get_embedding_function(),
-    )
+    vector_store = get_vector_store()
 
     chunks_with_ids = calculate_chunk_ids(chunks)
     existing_items = vector_store.get(include=[])
@@ -70,12 +94,24 @@ def add_to_chroma(chunks: list[Document]):
 
     if len(new_chunks):
         print("Adding new documents:", len(new_chunks))
-        new_chunk_ids = [chunk.metadata["id"] for chunk in new_chunks]
-        vector_store.add_documents(new_chunks, ids=new_chunk_ids)
+        # Batch so a single Ollama embed request never carries the whole corpus.
+        for start in range(0, len(new_chunks), INGEST_BATCH_SIZE):
+            batch = new_chunks[start : start + INGEST_BATCH_SIZE]
+            for attempt in range(1, INGEST_MAX_ATTEMPTS + 1):
+                try:
+                    vector_store.add_documents(batch, ids=[chunk.metadata["id"] for chunk in batch])
+                    break
+                except ResponseError as e:
+                    # Ollama's model runner occasionally drops mid-request; it restarts on the next call.
+                    if attempt == INGEST_MAX_ATTEMPTS:
+                        raise
+                    print(f"  batch at {start} failed (attempt {attempt}): {e}; retrying")
+                    time.sleep(5 * attempt)
+            print(f"  embedded {start + len(batch)}/{len(new_chunks)}")
     else:
         print("No new documents to add")
 
 
 def clear_database():
-    if os.path.exists("chroma_langchain_db"):
-        shutil.rmtree("chroma_langchain_db")
+    if os.path.exists(CHROMA_DIR):
+        shutil.rmtree(CHROMA_DIR)

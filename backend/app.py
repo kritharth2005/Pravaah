@@ -13,10 +13,6 @@ origins = ["*"]
 
 
 
-# Check for API Key
-if not os.getenv("GOOGLE_API_KEY"):
-    raise EnvironmentError("GOOGLE_API_KEY environment variable not set.")
-
 app = FastAPI(
     title="Pravaah Legal AI",
     description="API for summarizing and advising on legal documents.",
