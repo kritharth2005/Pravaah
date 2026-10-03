@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 .venv
 chroma_db_nomic/
+uploads/
+static/
+.pytest_cache/

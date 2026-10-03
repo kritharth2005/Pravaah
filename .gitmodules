@@ -1,0 +1,3 @@
+[submodule "frontend/Legal-Summarizer"]
+	path = frontend/Legal-Summarizer
+	url = https://github.com/Darkwizard07/Legal-Summarizer

@@ -1,5 +1,3 @@
-import os
-import shutil
 import time
 from pathlib import Path
 from ollama import ResponseError
@@ -36,11 +34,11 @@ def load_documents():
     return document_loader.load()
 
 
-def spilt_documents(documents: list[Document]):
-    text_spliter = RecursiveCharacterTextSplitter(
+def split_documents(documents: list[Document]):
+    text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=800, chunk_overlap=80, length_function=len, is_separator_regex=False
     )
-    return text_spliter.split_documents(documents)
+    return text_splitter.split_documents(documents)
 
 
 def get_embedding_function():
@@ -85,7 +83,7 @@ def add_to_chroma(chunks: list[Document]):
     existing_items = vector_store.get(include=[])
     existing_ids = set(existing_items["ids"])
 
-    print("Number of existing documents in VectorSore:", len(existing_ids))
+    print("Number of existing documents in vector store:", len(existing_ids))
 
     new_chunks = []
     for chunk in chunks_with_ids:
@@ -110,8 +108,3 @@ def add_to_chroma(chunks: list[Document]):
             print(f"  embedded {start + len(batch)}/{len(new_chunks)}")
     else:
         print("No new documents to add")
-
-
-def clear_database():
-    if os.path.exists(CHROMA_DIR):
-        shutil.rmtree(CHROMA_DIR)

@@ -1,107 +1,94 @@
-import os
-import pytesseract
-from PIL import Image
-from pdf2image import convert_from_path
-import fitz  # PyMuPDF
+import logging
+from pathlib import Path
 
-# --- Configuration ---
-# On Windows, you might need to uncomment and set this path if Tesseract is not in your system's PATH.
+import fitz  # PyMuPDF
+import pytesseract
+from pdf2image import convert_from_path
+from pdf2image.exceptions import PDFInfoNotInstalledError
+from PIL import Image, UnidentifiedImageError
+
+from config import MAX_OCR_PAGES
+
+log = logging.getLogger(__name__)
+
+# On Windows, set this if Tesseract is not on PATH:
 # pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
+# Extension -> required leading bytes (None: plain text, no signature)
+SIGNATURES = {
+    ".pdf": (b"%PDF-",),
+    ".png": (b"\x89PNG\r\n\x1a\n",),
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".txt": None,
+}
+SUPPORTED_EXTENSIONS = tuple(SIGNATURES)
+# Below this many characters a PDF's text layer is treated as missing (scanned document).
+MIN_DIGITAL_TEXT_CHARS = 100
 
-def process_file_to_text(input_path: str) -> tuple[bool, str]:
-    """
-    Processes a file (PDF, TXT, or Image) and extracts all text content.
 
-    This function intelligently handles different file types:
-    - For PDFs, it first attempts to extract digital text. If it fails or
-      the text is minimal (indicating a scanned PDF), it falls back to OCR.
-    - For images, it performs OCR directly.
-    - For text files, it reads the content directly.
+class UnsupportedFileError(Exception):
+    """The file type is not accepted, or its contents don't match its extension."""
 
-    Args:
-        input_path (str): The full path to the file to be processed.
 
-    Returns:
-        tuple[bool, str]: A tuple containing:
-                          - A boolean indicating success (True) or failure (False).
-                          - The extracted text as a string, or an error message on failure.
-    """
-    if not os.path.exists(input_path):
-        return False, "Error: File not found at the specified path."
+class ExtractionError(Exception):
+    """No usable text could be extracted from the document."""
+
+
+class OcrUnavailableError(Exception):
+    """Tesseract or Poppler, needed for images and scanned PDFs, is not installed on the server."""
+
+
+def extract_text(path: Path) -> tuple[str, list[str]]:
+    """Returns the document's text and any notices about partial processing."""
+    extension = path.suffix.lower()
+    if extension not in SIGNATURES:
+        raise UnsupportedFileError(f"Unsupported file type '{extension}'. Allowed: {', '.join(SUPPORTED_EXTENSIONS)}")
+    signatures = SIGNATURES[extension]
+    if signatures:
+        with path.open("rb") as f:
+            if not f.read(16).startswith(signatures):
+                raise UnsupportedFileError(f"The file's contents are not a valid {extension} file.")
 
     try:
-        # CORRECTED: Changed 'splittext' to 'splitext'
-        file_extension = os.path.splitext(input_path)[1].lower()
-
-        if file_extension == '.pdf':
-            return _process_pdf(input_path)
-        elif file_extension in ['.png', '.jpg', '.jpeg', '.bmp', '.tiff']:
-            return _process_image(input_path)
-        elif file_extension == '.txt':
-            return _process_txt(input_path)
+        if extension == ".pdf":
+            text, notices = _process_pdf(path)
+        elif extension == ".txt":
+            text, notices = path.read_text(encoding="utf-8", errors="replace"), []
         else:
-            return False, f"Unsupported file type: {file_extension}"
-    except Exception as e:
-        print(f"An unexpected error occurred in process_file_to_text: {e}")
-        return False, f"An internal error occurred: {e}"
+            # Closed explicitly: an open handle blocks deleting the temp upload on Windows.
+            with Image.open(path) as image:
+                text, notices = pytesseract.image_to_string(image), []
+    except (pytesseract.TesseractNotFoundError, PDFInfoNotInstalledError) as e:
+        raise OcrUnavailableError("OCR is not available on the server (Tesseract/Poppler not installed).") from e
+    except UnidentifiedImageError as e:
+        raise ExtractionError("The image could not be read.") from e
+
+    if not text.strip():
+        raise ExtractionError("No readable text was found in the document.")
+    return text, notices
 
 
-def _process_txt(file_path: str) -> tuple[bool, str]:
-    """Reads text directly from a .txt file."""
-    print(f"Processing .txt file: {os.path.basename(file_path)}")
+def _process_pdf(path: Path) -> tuple[str, list[str]]:
+    """Uses the PDF's text layer when present, otherwise OCRs it page by page."""
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            text = f.read()
-        return True, text
+        with fitz.open(path) as doc:
+            page_count = doc.page_count
+            text = "".join(page.get_text() for page in doc)
     except Exception as e:
-        print(f"Error reading .txt file {file_path}: {e}")
-        return False, "Failed to read the text file."
+        raise ExtractionError("The PDF could not be opened.") from e
 
+    if len(text.strip()) > MIN_DIGITAL_TEXT_CHARS:
+        return text, []
 
-def _process_image(file_path: str) -> tuple[bool, str]:
-    """Performs OCR on a single image file."""
-    print(f"Processing image file with OCR: {os.path.basename(file_path)}")
-    try:
-        text = pytesseract.image_to_string(Image.open(file_path))
-        return True, text
-    except Exception as e:
-        print(f"Error performing OCR on image {file_path}: {e}")
-        return False, "Failed to perform OCR on the image."
-
-
-def _process_pdf(file_path: str) -> tuple[bool, str]:
-    """
-    Processes a PDF by first trying direct text extraction, then falling back to OCR.
-    """
-    # --- Step 1: Attempt to extract text directly (for digital PDFs) ---
-    print(f"Attempting direct text extraction from PDF: {os.path.basename(file_path)}")
-    try:
-        with fitz.open(file_path) as doc:
-            full_text = "".join(page.get_text() for page in doc)
-
-        # Heuristic: If we get a reasonable amount of text, assume it's a digital PDF and we're done.
-        if len(full_text.strip()) > 100:  # You can adjust this threshold
-            print("Direct text extraction successful.")
-            return True, full_text
-        else:
-            print("Direct text extraction yielded minimal text. Proceeding to OCR fallback.")
-    except Exception as e:
-        print(f"Direct text extraction failed: {e}. Proceeding to OCR fallback.")
-
-    # --- Step 2: Fallback to OCR (for scanned/image-based PDFs) ---
-    print(f"Processing PDF with OCR: {os.path.basename(file_path)}")
-    try:
-        images = convert_from_path(file_path)
-        # CORRECTED: Initialized a new variable for OCR text to avoid the UnboundLocalError
-        ocr_text = ""
-        for i, image in enumerate(images):
-            print(f"  - OCR on page {i + 1}/{len(images)}")
-            text = pytesseract.image_to_string(image)
-            ocr_text += text + "\n\n"  # Add page breaks for clarity
-
-        return True, ocr_text
-    except Exception as e:
-        print(f"OCR processing for PDF {file_path} failed: {e}")
-        return False, "Failed to perform OCR on the PDF file."
-
+    log.info("PDF has no usable text layer; running OCR on up to %d of %d pages", MAX_OCR_PAGES, page_count)
+    pages_to_read = min(page_count, MAX_OCR_PAGES)
+    # One page at a time so a long scan never holds every rendered page in memory.
+    ocr_pages = [
+        pytesseract.image_to_string(convert_from_path(path, first_page=number, last_page=number)[0])
+        for number in range(1, pages_to_read + 1)
+    ]
+    notices = []
+    if page_count > pages_to_read:
+        notices.append(f"This scanned PDF has {page_count} pages; only the first {pages_to_read} were read.")
+    return "\n\n".join(ocr_pages), notices

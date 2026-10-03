@@ -1,15 +1,26 @@
+import asyncio
+import logging
+import time
+
+from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from config import LLM_MODEL, LLM_NUM_CTX, LLM_TEMPERATURE, OLLAMA_BASE_URL
-from vector import (
-    add_to_chroma,
-    clear_database,
-    get_vector_store,
-    load_documents,
-    spilt_documents,
+from config import (
+    LLM_MODEL,
+    LLM_NUM_CTX,
+    LLM_TEMPERATURE,
+    MAX_DOCUMENT_CHARS,
+    MAX_PROMPT_INPUT_CHARS,
+    OLLAMA_BASE_URL,
 )
-from multilingual import generate_audio_output
+from models import Audience, Language, Mode, ResponseBody
+from multilingual import localize
+from prompts import DOCUMENT_PART_SUMMARY, DOCUMENT_PROMPTS, PROMPTS
+from vector import get_vector_store
+
+log = logging.getLogger(__name__)
 
 vector_store = get_vector_store()
 
@@ -20,236 +31,114 @@ model = ChatOllama(
     num_ctx=LLM_NUM_CTX,
 )
 
+# Summaries take the closest matches; advice uses MMR so different provisions are covered.
+RETRIEVAL_K = {Mode.summary: 7, Mode.advice: 5}
+RETRIEVERS = {
+    Mode.summary: vector_store.as_retriever(search_kwargs={"k": RETRIEVAL_K[Mode.summary]}),
+    Mode.advice: vector_store.as_retriever(
+        search_type="mmr", search_kwargs={"k": RETRIEVAL_K[Mode.advice], "fetch_k": 20}
+    ),
+}
 
-async def human_summarizer(query_text: str, lang: str):
-
-    PROMPT_TEMPLATE = """
-    You are an AI assistant that explains legal topics in simple, everyday language. Your task is to answer the user's question clearly, based only on the text provided.
-
-    CONTEXT:
-    {context}
-    ---
-    QUESTION: {question}
-
-    INSTRUCTIONS:
-    1.  **Explain the answer in simple terms.** Avoid legal jargon. If you must use a legal term, explain it immediately.
-    2.  Base your entire answer only on the information from the CONTEXT above.
-    3.  If the context does not contain the answer, state that the information is not available in the provided text.
-    4.  Conclude your response with a simple disclaimer: "Please remember, this is a simplified explanation for informational purposes and not legal advice. Always consult a legal professional for serious matters."
-    5.  **Start the explanation directly.** Do not begin your response with phrases like "Based on the information provided," or "According to the text."
-
-    """
-
-    results = await vector_store.asimilarity_search_with_score(query=query_text, k=7)
-
-    context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
-    prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-    prompt = prompt_template.format(context=context_text, question=query_text)
-
-    print("=" * 55)
-    print(prompt)
-    print("=" * 55)
-
-    response = await model.ainvoke(prompt)
-
-    print("=" * 55)
-    print(response.content)
-    print("=" * 55)
-
-    restext, audio_path = await generate_audio_output(response.content, lang)
-
-    return restext, audio_path
+# Pasted text this long is treated as a document to summarize rather than a question.
+DOCUMENT_MIN_WORDS = 120
+# The embedding model only sees ~2k tokens, so long inputs are searched piece by piece.
+RETRIEVAL_PIECE_CHARS = 2000
+MAX_RETRIEVAL_PIECES = 12
+MATCHES_PER_PIECE = 3
+# Parts for long documents, sized to leave room in LLM_NUM_CTX for the part-summary prompt.
+DOCUMENT_PART_CHARS = 10000
 
 
-async def professional_summarizer(query_text: str, lang: str):
-
-    PROMPT_TEMPLATE = """
-        ## ROLE & GOAL ##
-        You are an AI Legal Analyst. Your goal is to provide a concise and technically accurate summary of the legal principles contained within the provided CONTEXT for a professional legal audience.
-
-        ## CONTEXT ##
-        {context}
-
-        ## USER'S QUESTION ##
-        {question}
-
-        ## INSTRUCTIONS & RULES ##
-        1.  **Technical & Precise Language:** Summarize the legal text using precise legal terminology. Do not simplify or explain jargon; the audience is expected to understand it.
-        2.  **Structured Summary:** Structure your response logically. Begin with the core legal principle, then enumerate the essential elements, conditions, or exceptions as presented in the text.
-        3.  **Strictly Context-Based:** Your entire summary must be derived exclusively from the provided CONTEXT. Do not infer or add information not present in the text.
-        4.  **Cite Sections:** You must cite the specific section numbers or clauses referenced in the context.
-        5.  **Handle Missing Information:** If the CONTEXT does not contain the information relevant to the question, state that the information is not available in the provided text.
-        6.  **Start the explanation directly.** Do not begin your response with phrases like "Based on the information provided," or "According to the text."
-
-        ## PROFESSIONAL DISCLAIMER ##
-        You MUST end every response with the following disclaimer, exactly as written:
-        "**Disclaimer:** This AI-generated summary is for informational and preliminary review purposes only and is not a substitute for a complete reading of the source text or independent legal analysis."
-        """
-
-    results = await vector_store.asimilarity_search_with_score(query=query_text, k=7)
-
-    context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
-    prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-    prompt = prompt_template.format(context=context_text, question=query_text)
-
-    print("=" * 55)
-    print(prompt)
-    print("=" * 55)
-
-    response = await model.ainvoke(prompt)
-
-    print("=" * 55)
-    print(response.content)
-    print("=" * 55)
-
-    restext, audio_path = await generate_audio_output(response.content, lang)
-
-    return restext, audio_path
+def looks_like_document(text: str) -> bool:
+    return len(text.split()) >= DOCUMENT_MIN_WORDS
 
 
-async def human_advisor(query_text: str, lang: str):
+def _split(text: str, size: int, overlap: int) -> list[str]:
+    return RecursiveCharacterTextSplitter(chunk_size=size, chunk_overlap=overlap).split_text(text)
 
-    PROMPT_TEMPLATE = """
-## ROLE & GOAL ##
-You are an AI Legal Advisor. Your goal is to analyze a user's situation based *exclusively* on the provided legal CONTEXT. You must explain the situation in simple, easy-to-understand terms and structure your response clearly into the sections below.
 
-## CONTEXT ##
-{context}
+def _truncate(text: str, limit: int, notices: list[str], what: str) -> str:
+    if len(text) <= limit:
+        return text
+    notices.append(f"The {what} is long, so only its first {limit:,} characters were analysed.")
+    return text[:limit]
 
-## USER'S QUESTION ##
-{question}
 
-## INSTRUCTIONS & RULES ##
-1.  **Simple Language is Crucial:** Explain everything in plain, everyday English. Avoid legal jargon. If you must use a legal term from the context, explain it simply.
-2.  **Analyze and Structure:** Based on the user's question and the context, determine the nature of the legal issue and organize your entire response into the exact sections provided in the structure below. Use Markdown for formatting.
-3.  **Strictly Context-Based:** Your entire analysis must be based ONLY on the provided CONTEXT. Do not use any outside knowledge.
-4.  **Handle Missing Information:** If the CONTEXT does not contain enough information, state that clearly within the relevant sections.
+async def retrieve(text: str, mode: Mode) -> list[Document]:
+    if len(text) <= RETRIEVAL_PIECE_CHARS:
+        return await RETRIEVERS[mode].ainvoke(text)
 
-## RESPONSE STRUCTURE ##
-
-### 1. What kind of case is this?
-(Based on the user's story, briefly describe the type of legal issue in simple terms. For example: "This seems to be a consumer complaint about a faulty product," or "This is a dispute about working hours.")
-
-### 2. Relevant Laws for Reference
-(List the key laws and section numbers from the CONTEXT that apply to this situation. Cite both the old law (e.g., Indian Penal Code) and the new law (e.g., Bharatiya Nyaya Sanhita - BNS) if available in the context. Format it as a list.)
-* **Law Name:** [e.g., Consumer Protection Act, 2019], Section(s): [e.g., 2(1)(r)]
-* **BNS/IPC Section:** [e.g., BNS Section 303 (Theft)]
-
-### 3. Advice and Next Steps
-(Provide a step-by-step explanation of the user's rights and what they can do next, based on the law from the CONTEXT. Use simple language and bullet points.)
-* **Your Rights:** Explain what the law says the user is entitled to.
-* **Possible Actions:** Suggest what steps the user could consider taking.
-* **Important Note:** Briefly mention any key considerations.
-
-## CRITICAL DISCLAIMER ##
-You MUST end every response with the following disclaimer, exactly as written:
-"**Disclaimer:** I am an AI assistant, not a lawyer. This analysis is for informational purposes only, based on the text provided, and is not a substitute for professional legal advice. You should consult with a qualified legal professional for your specific situation."
-"""
-    retriever = vector_store.as_retriever(
-        search_type="mmr",
-        search_kwargs={
-            "k": 5,
-            "fetch_k": 20,
-        },
+    # Search with pieces spread across the whole text, so provisions cited anywhere are found,
+    # then keep the closest distinct chunks.
+    pieces = _split(text, RETRIEVAL_PIECE_CHARS, 0)
+    step = max(1, len(pieces) // MAX_RETRIEVAL_PIECES)
+    pieces = pieces[::step][:MAX_RETRIEVAL_PIECES]
+    results = await asyncio.gather(
+        *(vector_store.asimilarity_search_with_score(piece, k=MATCHES_PER_PIECE) for piece in pieces)
     )
-
-    results = await retriever.ainvoke(query_text)
-
-    context_text = "\n\n---\n\n".join([doc.page_content for doc in results])
-    prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-    prompt = prompt_template.format(context=context_text, question=query_text)
-
-    print("=" * 55)
-    print(prompt)
-    print("=" * 55)
-
-    response = await model.ainvoke(prompt)
-
-    print("=" * 55)
-    print(response.content)
-    print("=" * 55)
-
-    restext, audio_path = await generate_audio_output(response.content, lang)
-
-    return restext, audio_path
+    best: dict[str, tuple[Document, float]] = {}
+    for doc, distance in (match for matches in results for match in matches):
+        key = doc.metadata.get("id", doc.page_content)
+        if key not in best or distance < best[key][1]:
+            best[key] = (doc, distance)
+    ranked = sorted(best.values(), key=lambda match: match[1])
+    return [doc for doc, _ in ranked[: RETRIEVAL_K[mode]]]
 
 
-async def professional_advisor(query_text: str, lang: str):
+async def _generate(template: str, **values) -> str:
+    messages = ChatPromptTemplate.from_template(template).format_messages(**values)
+    return (await model.ainvoke(messages)).content
 
-    PROMPT_TEMPLATE = """
-        ## ROLE & GOAL ##
-        You are a Specialist AI Legal Analyst. Your function is to provide a detailed and technical legal analysis for a legal professional. Your goal is to dissect the user's query, apply the relevant statutory provisions from the provided CONTEXT, and outline the legal reasoning, potential arguments, and conclusions.
 
-        ## CONTEXT ##
-        {context}
+def _join(documents: list[Document]) -> str:
+    return "\n\n---\n\n".join(doc.page_content for doc in documents)
 
-        ## USER'S QUERY ##
-        {question}
 
-        ## INSTRUCTIONS & RULES ##
-        1.  **Technical & Precise Language:** Use accurate legal terminology and formal language appropriate for a lawyer or advocate. Do not simplify legal concepts.
-        2.  **In-Depth Analysis:** Your analysis must be thorough. Go beyond a surface-level application. Identify the essential elements of the relevant legal provisions and meticulously apply them to the facts of the case.
-        3.  **Identify Strengths and Weaknesses:** If possible, based on the context, identify potential counter-arguments or weaknesses in the legal position.
-        4.  **Structure Your Response (IRAC Method):** Organize your analysis into the following formal sections:
-            * **Issue:** Concisely state the central legal question(s) presented by the user's query.
-            * **Rule:** State the relevant legal rule(s) and cite the specific sections from the CONTEXT verbatim.
-            * **Application:** This is the core of your analysis. Systematically apply the rule to the facts. Analyze each element of the statute and connect it to the corresponding facts in the query.
-            * **Conclusion:** Provide a reasoned legal conclusion based on your application of the rule to the facts.
-        5.  **Strictly Context-Based:** Your entire analysis must be derived exclusively from the provided CONTEXT. Do not infer principles or cite case law not present in the text.
-        6.  **Handle Missing Information:** If the CONTEXT is insufficient to form a complete analysis, explicitly state what information is missing and how it impacts the conclusion.
-        7.  **Start the explanation directly.** Do not begin your response with phrases like "Based on the information provided," or "According to the text."
+async def summarize_document(audience: Audience, document: str, notices: list[str]) -> tuple[str, int]:
+    """Summarizes the user's document itself; returns the summary and the number of parts used."""
+    document = _truncate(document, MAX_DOCUMENT_CHARS, notices, "document")
+    context = _join(await retrieve(document, Mode.summary))
 
-        ## PROFESSIONAL DISCLAIMER ##
-        You MUST end every response with the following disclaimer, exactly as written:
-        "**Disclaimer:** This AI-generated analysis is for informational and preliminary review purposes only. It is not a substitute for independent professional legal judgment and should not be cited as legal authority. Always conduct your own comprehensive research."
-        """
+    if len(document) <= MAX_PROMPT_INPUT_CHARS:
+        return await _generate(DOCUMENT_PROMPTS[audience], document=document, context=context), 1
 
-    retriever = vector_store.as_retriever(
-        search_type="mmr",
-        search_kwargs={
-            "k": 5,
-            "fetch_k": 20,
-        },
+    # Too long for one prompt: condense each part, then summarize the condensed parts together.
+    parts = _split(document, DOCUMENT_PART_CHARS, 300)
+    part_summaries = []
+    for number, part in enumerate(parts, start=1):
+        part_summaries.append(await _generate(DOCUMENT_PART_SUMMARY, part=number, total=len(parts), text=part))
+    condensed = "The document was too long to include in full, so it is given as summaries of its consecutive parts.\n\n" + "\n\n".join(
+        f"[Part {number} of {len(parts)}]\n{summary}" for number, summary in enumerate(part_summaries, start=1)
     )
-
-    results = await retriever.ainvoke(query_text)
-
-    context_text = "\n\n---\n\n".join([doc.page_content for doc in results])
-    prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-    prompt = prompt_template.format(context=context_text, question=query_text)
-
-    print("=" * 55)
-    print(prompt)
-    print("=" * 55)
-
-    response = await model.ainvoke(prompt)
-
-    print("=" * 55)
-    print(response.content)
-    print("=" * 55)
-
-    restext, audio_path = await generate_audio_output(response.content, lang)
-
-    return restext, audio_path
+    return await _generate(DOCUMENT_PROMPTS[audience], document=condensed, context=context), len(parts)
 
 
-def load_vector_store():
-    documents = load_documents()
-    chunks = spilt_documents(documents)
-    add_to_chroma(chunks)
-    return {"message": "Done"}
+async def answer(
+    audience: Audience, mode: Mode, text: str, language: Language, is_document: bool | None = None
+) -> ResponseBody:
+    """is_document: True for uploads; None detects pasted documents by length."""
+    started = time.perf_counter()
+    notices: list[str] = []
+    if is_document is None:
+        is_document = looks_like_document(text)
 
+    if mode is Mode.summary and is_document:
+        response, parts = await summarize_document(audience, text, notices)
+        kind = f"document parts={parts}"
+    else:
+        question = _truncate(text, MAX_PROMPT_INPUT_CHARS, notices, "document" if is_document else "question")
+        context = _join(await retrieve(question, mode))
+        response = await _generate(PROMPTS[(audience, mode)], context=context, question=question)
+        kind = "question"
+    generated = time.perf_counter()
 
-def delete_vector_store():
-    clear_database()
-    return {"message": "Done"}
+    translated, audio_path, localize_notices = await localize(response, language)
 
-
-if __name__ == "__main__":
-    print(load_vector_store())
-#     query = """
-#     Provide a technical summary of the grounds upon which a 'Perpetual Injunction' can be granted, as enumerated in the Specific Relief Act, 1963
-# """
-    # human_summarizer(query_text=query)
-    # asyncio.run(professional_summarizer(query_text=query, lang="mal"))
-# clear_database()
+    # Sizes and timings only: inputs describe users' legal situations.
+    log.info(
+        "%s/%s %s lang=%s input_chars=%d generate=%.1fs localize=%.1fs",
+        audience.value, mode.value, kind, language.value, len(text),
+        generated - started, time.perf_counter() - generated,
+    )
+    return ResponseBody(text=translated, audio_path=audio_path, notices=notices + localize_notices)
